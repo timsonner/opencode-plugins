@@ -57,9 +57,10 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 }
 
-// Get current agent identity from session
+// Get current agent identity from session - uses PID for uniqueness across sessions
 function getAgentId(sessionId: string): string {
-  return `agent-${sessionId.substr(0, 8)}`
+  const pid = typeof process !== 'undefined' ? process.pid : Math.floor(Math.random() * 10000)
+  return `agent-${sessionId.substr(0, 8)}-${pid}`
 }
 
 export const AgentCollaborationPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
@@ -73,6 +74,7 @@ export const AgentCollaborationPlugin: Plugin = async ({ project, client, $, dir
   const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
   agents[agentId] = {
     id: agentId,
+    name: agentId, // Default name is the agent ID
     sessionId,
     registeredAt: Date.now(),
     lastActive: Date.now(),
@@ -86,7 +88,7 @@ export const AgentCollaborationPlugin: Plugin = async ({ project, client, $, dir
     body: {
       service: "agent-collaboration",
       level: "info",
-      message: `Agent ${agentId} registered for collaboration`,
+      message: `Agent ${agentId} registered for collaboration. IMPORTANT: Use the agent.name tool to set a unique display name (e.g., "LeadDev", "FrontendDev", "PythonDev") so other agents can identify you. Then use agent.discover to find other agents.`,
       extra: { sessionId, agentId }
     }
   })
@@ -94,6 +96,29 @@ export const AgentCollaborationPlugin: Plugin = async ({ project, client, $, dir
   return {
     // Register custom collaboration tools
     tool: {
+      // Tool for agents to set their display name
+      "agent.name": tool({
+        description: `Set your display name for the collaboration network. Use a unique, memorable name like "LeadDev", "FrontendAgent", "PythonDev", etc. This name will be shown to other agents instead of your agent ID.`,
+        args: {
+          name: tool.schema.string().describe("Your display name - should be unique and descriptive")
+        },
+        async execute(args, context) {
+          const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
+          if (agents[agentId]) {
+            agents[agentId].name = args.name
+            agents[agentId].lastActive = Date.now()
+            await writeCollabFile(AGENTS_FILE, agents)
+            return JSON.stringify({
+              success: true,
+              agentId,
+              name: args.name,
+              message: `Your display name is now "${args.name}". Other agents will see this name in messages and discovery.`
+            }, null, 2)
+          }
+          return JSON.stringify({ success: false, error: "Agent not registered" }, null, 2)
+        }
+      }),
+
       // Tool for agents to send messages to each other
       "agent.message": tool({
         description: `Send a message to another agent or broadcast to all agents. Use this to:
@@ -103,6 +128,8 @@ export const AgentCollaborationPlugin: Plugin = async ({ project, client, $, dir
 - Coordinate work on shared tasks
 - Ask for code review or feedback
 
+IMPORTANT: Always use agent DISPLAY NAMES (not agent IDs) in the "to" field. Use agent.discover to find names.
+
 Message types:
 - task_request: Request another agent to take on a task
 - task_update: Update on task progress
@@ -111,7 +138,7 @@ Message types:
 - status_update: General status update
 - blocker_report: Report something blocking progress`,
         args: {
-          to: tool.schema.string().describe("Target agent ID or 'broadcast' for all agents"),
+          to: tool.schema.string().describe("Target agent DISPLAY NAME or 'broadcast' for all agents"),
           type: tool.schema.enum(["task_request", "task_update", "help_request", "solution_proposal", "status_update", "blocker_report"]).describe("Type of message"),
           content: tool.schema.string().describe("Message content - be specific and include relevant context"),
           taskId: tool.schema.string().optional().describe("Associated task ID if applicable"),
@@ -119,11 +146,21 @@ Message types:
         },
         async execute(args, context) {
           const messages = await readCollabFile<CollaborationMessage[]>(MESSAGES_FILE, [])
+          const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
+          
+          // Resolve display name to agent ID
+          let targetId = args.to
+          if (args.to !== "broadcast") {
+            const targetAgent = Object.values(agents).find((a: any) => a.name === args.to)
+            if (targetAgent) {
+              targetId = (targetAgent as any).id
+            }
+          }
           
           const message: CollaborationMessage = {
             id: generateId(),
             from: agentId,
-            to: args.to,
+            to: targetId,
             type: args.type as MessageType,
             content: args.content,
             timestamp: Date.now(),
@@ -131,7 +168,9 @@ Message types:
             priority: args.priority as any,
             metadata: {
               directory,
-              worktree
+              worktree,
+              fromName: agents[agentId]?.name || agentId,
+              toName: args.to
             }
           }
 
@@ -145,14 +184,16 @@ Message types:
             timestamp: message.timestamp,
             note: args.to === "broadcast" 
               ? "Message sent to all agents" 
-              : `Message queued for agent ${args.to}`
+              : `Message queued for agent "${args.to}"`
           }, null, 2)
         }
       }),
 
       // Tool for agents to check for new messages
       "agent.inbox": tool({
-        description: "Check your message inbox for new messages from other agents. Returns unread messages and their details.",
+        description: `Check your message inbox for new messages from other agents. Returns messages with sender display names.
+
+IMPORTANT: After checking inbox, if you have messages to respond to, use agent.message to reply. Keep the conversation going!`,
         args: {
           type: tool.schema.enum(["task_request", "task_update", "help_request", "solution_proposal", "status_update", "blocker_report"]).optional().describe("Filter by message type"),
           priority: tool.schema.enum(["low", "medium", "high", "urgent"]).optional().describe("Filter by priority"),
@@ -160,6 +201,7 @@ Message types:
         },
         async execute(args, context) {
           const messages = await readCollabFile<CollaborationMessage[]>(MESSAGES_FILE, [])
+          const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
           
           // Filter messages for this agent
           const inbox = messages
@@ -171,10 +213,12 @@ Message types:
 
           return JSON.stringify({
             agentId,
+            yourName: agents[agentId]?.name || agentId,
             messageCount: inbox.length,
             messages: inbox.map(m => ({
               id: m.id,
               from: m.from,
+              fromName: m.metadata?.fromName || m.from,
               type: m.type,
               priority: m.priority,
               content: m.content,
@@ -276,7 +320,9 @@ Actions:
 
       // Tool for agents to discover other active agents
       "agent.discover": tool({
-        description: "Discover other active agents in the collaboration network. Returns list of agents with their capabilities and status.",
+        description: `Discover other active agents in the collaboration network. Returns list of agents with their DISPLAY NAMES, capabilities and status.
+
+IMPORTANT: Use the "name" field (not "id") when sending messages to specific agents.`,
         args: {
           capability: tool.schema.string().optional().describe("Filter agents by capability")
         },
@@ -288,6 +334,7 @@ Actions:
             .filter((a: any) => !args.capability || a.capabilities?.includes(args.capability))
             .map((a: any) => ({
               id: a.id,
+              name: a.name || a.id,
               sessionId: a.sessionId,
               capabilities: a.capabilities,
               lastActive: a.lastActive,
@@ -304,6 +351,21 @@ Actions:
     },
 
     // Event hooks for collaboration
+    "session.created": async (input: any, output: any) => {
+      // Re-register agent when session is created
+      const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
+      agents[agentId] = {
+        id: agentId,
+        name: agents[agentId]?.name || agentId,
+        sessionId,
+        registeredAt: Date.now(),
+        lastActive: Date.now(),
+        capabilities: ["task_execution", "problem_solving", "code_review"],
+        status: "active"
+      }
+      await writeCollabFile(AGENTS_FILE, agents)
+    },
+
     "message.updated": async (input: any, output: any) => {
       // Track agent activity
       const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})

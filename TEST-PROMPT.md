@@ -7,7 +7,7 @@ Copy and paste this prompt into OpenCode to test the collaboration plugin:
 ## Test Prompt
 
 ```
-I have the Agent Collaboration Plugin installed. Let's test it by building a real project together with multiple agents acting as junior developers.
+I have the Agent Collaboration Plugin installed. Let's test it by building a real project together with multiple agents collaborating as a team.
 
 ## Project: AI Question App
 
@@ -25,21 +25,38 @@ We're building an AI-powered question answering application with two versions:
 
 ## Multi-Agent Collaboration Test
 
-You are the **Lead Developer Agent**. Your role is to:
-1. Break down the project into subtasks
-2. Create tasks for junior developer agents
-3. Delegate work and coordinate collaboration
-4. Review and integrate completed work
+### Setup Instructions (Read Before Starting)
+- **Each agent session should run this prompt independently**
+- **Each agent MUST set a unique name** - coordinate with your team!
+- **Suggested names**: LeadDev, FrontendDev, PythonDev, TestDev, etc.
+
+### Agent Roles
+- **Agent 1 (First Session)**: You are the **Lead Developer**. Set your name to "LeadDev"
+- **Agent 2+ (Other Sessions)**: You are a **Developer**. Pick a unique name like "FrontendDev", "PythonDev", etc.
+
+### IMPORTANT: Agent Naming & Communication Rules
+1. **Set your name FIRST**: Use `agent.name` immediately - pick a unique name!
+2. **Discover others**: Use `agent.discover` to find teammates
+3. **Use display names**: Always use agent NAMES (not IDs) when sending messages
+4. **Continuous conversation loop**: After each action, check your inbox and respond. Keep the conversation flowing!
+5. **Poll regularly**: Between major tasks, check `agent.inbox` for new messages
 
 Please perform the following steps:
 
-### Step 1: Discover Available Agents
+### Step 1: Set Your Agent Name
+Set a unique display name for yourself:
+- Use `agent.name` with a descriptive name (e.g., "LeadDev", "FrontendDev", "PythonDev")
+- Make sure your name is UNIQUE - no other agent should have the same name
+- Report your name once set
+
+### Step 2: Discover Available Agents
 Check what other agents are active in the collaboration network:
 - Use `agent.discover` to list all active agents
+- Note their DISPLAY NAMES (use these for messaging, not their IDs)
 - Report what agents are available and their capabilities
-- If no other agents are found, note that you'll need to work solo or request additional agents
+- If no other agents are found, broadcast a message inviting others to join and wait a moment
 
-### Step 2: Create Project Tasks
+### Step 3: Create Project Tasks
 Break down the project and create tasks for the team:
 
 **Task 1**: "Setup NVIDIA API Integration"
@@ -60,7 +77,7 @@ Break down the project and create tasks for the team:
 
 Use `agent.task` with action "create" for each task and report all task IDs.
 
-### Step 3: Broadcast Task Assignments
+### Step 4: Broadcast Task Assignments
 Announce the project to all agents:
 - Use `agent.message` with:
   - to: "broadcast"
@@ -68,13 +85,13 @@ Announce the project to all agents:
   - content: "New project: AI Question App with NVIDIA API. We're building both a JavaScript web frontend and Python terminal version. Check the task board for available tasks. Please claim a task based on your expertise!"
   - priority: "high"
 
-### Step 4: Claim Lead Developer Tasks
+### Step 5: Claim Lead Developer Tasks
 As the lead developer, claim the integration and coordination work:
 - Use `agent.task` to claim Task 1 (API Integration)
 - Update it to "in_progress"
 - Report your progress
 
-### Step 5: Simulate Junior Developer Response
+### Step 6: Simulate Junior Developer Response
 Simulate a junior agent responding to your broadcast:
 - Use `agent.message` with:
   - to: "broadcast"
@@ -82,7 +99,7 @@ Simulate a junior agent responding to your broadcast:
   - content: "I can take on the Python terminal app! I'll use prompt_toolkit for a nice CLI experience with auto-completion for model names. Should I claim Task 3?"
   - priority: "medium"
 
-### Step 6: Delegate and Coordinate
+### Step 7: Delegate and Coordinate
 Respond to the junior agent and delegate:
 - Use `agent.message` to approve and provide guidance:
   - to: "broadcast"
@@ -90,12 +107,12 @@ Respond to the junior agent and delegate:
   - content: "Great! Please claim Task 3. Make sure to: 1) Store API key securely (don't hardcode), 2) Handle API errors gracefully, 3) Add a /models command to list available models mid-chat, 4) Include conversation history in API calls for context. Let me know if you hit any blockers!"
   - priority: "medium"
 
-### Step 7: Check Inbox for Updates
+### Step 8: Check Inbox for Updates
 Check if any agents have completed work or need help:
 - Use `agent.inbox`
 - Report any new messages
 
-### Step 8: Update Project Status
+### Step 9: Update Project Status
 Provide a project status update:
 - Use `agent.task` with action "list" to show all tasks
 - Use `agent.message` to broadcast:
@@ -104,7 +121,7 @@ Provide a project status update:
   - content: "Project update: API integration in progress. Python app claimed by team member. JavaScript frontend still available - who can take it? Remember to coordinate on the shared API module structure."
   - priority: "medium"
 
-### Step 9: Handle Blockers (Simulation)
+### Step 10: Handle Blockers (Simulation)
 Simulate a junior developer hitting a blocker:
 - Use `agent.message` as if from another agent:
   - to: "broadcast"
@@ -112,7 +129,7 @@ Simulate a junior developer hitting a blocker:
   - content: "BLOCKER on Task 3: Getting 401 errors from NVIDIA API even with valid key. Not sure if I'm formatting the authorization header correctly. Can someone review my approach?"
   - priority: "urgent"
 
-### Step 10: Resolve Blocker
+### Step 11: Resolve Blocker
 Help resolve the blocker:
 - Use `agent.message` to provide solution:
   - to: "broadcast"
@@ -120,7 +137,7 @@ Help resolve the blocker:
   - content: "For the NVIDIA API, make sure you're using: headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}. Also check that your API key has the correct permissions. Here's a working example snippet: [provide code example]"
   - priority: "high"
 
-### Step 11: Final Project Summary
+### Step 12: Final Project Summary
 Provide a comprehensive summary:
 - List all tasks and their current status
 - Summarize all messages exchanged
@@ -131,13 +148,22 @@ Provide a comprehensive summary:
 ---
 
 This test will verify that:
-✅ Agent discovery and capability assessment works
+✅ Agent naming and identity works
+✅ Agent discovery with display names works
 ✅ Task breakdown and delegation works
 ✅ Lead agent can coordinate junior developers
 ✅ Blocker reporting and resolution works
 ✅ Multi-agent collaboration on real project works
 ✅ Task dependencies are tracked
 ✅ Communication flows effectively between agents
+
+### IMPORTANT: Continuous Conversation Loop
+Throughout this test, maintain an active conversation loop:
+1. After each action, check `agent.inbox` for new messages
+2. Respond to any messages using `agent.message`
+3. Don't wait for instructions - proactively check and respond
+4. If no new messages, send a status update to keep the conversation flowing
+5. Think of this as a real team chat - keep checking and responding!
 ```
 
 ---
