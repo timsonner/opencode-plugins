@@ -63,6 +63,28 @@ function getAgentId(sessionId: string): string {
   return `agent-${sessionId.substr(0, 8)}-${pid}`
 }
 
+// Stale agent threshold in milliseconds (5 minutes)
+const STALE_THRESHOLD = 5 * 60 * 1000
+
+// Clean up stale agents that haven't been active recently
+async function cleanupStaleAgents(): Promise<void> {
+  const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
+  const now = Date.now()
+  let changed = false
+  
+  for (const [id, agent] of Object.entries(agents)) {
+    const a = agent as any
+    if (a.status === "active" && (now - a.lastActive) > STALE_THRESHOLD) {
+      agents[id].status = "stale"
+      changed = true
+    }
+  }
+  
+  if (changed) {
+    await writeCollabFile(AGENTS_FILE, agents)
+  }
+}
+
 export const AgentCollaborationPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
   const sessionId = project?.id || "unknown"
   const agentId = getAgentId(sessionId)
@@ -71,6 +93,7 @@ export const AgentCollaborationPlugin: Plugin = async ({ project, client, $, dir
   await $`mkdir -p ${COLLAB_DIR}`
 
   // Register agent on startup
+  await cleanupStaleAgents()
   const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
   agents[agentId] = {
     id: agentId,
@@ -327,6 +350,9 @@ IMPORTANT: Use the "name" field (not "id") when sending messages to specific age
           capability: tool.schema.string().optional().describe("Filter agents by capability")
         },
         async execute(args, context) {
+          // Clean up stale agents before discovery
+          await cleanupStaleAgents()
+          
           const agents = await readCollabFile<Record<string, any>>(AGENTS_FILE, {})
           
           const activeAgents = Object.values(agents)
