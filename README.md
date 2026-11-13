@@ -1,219 +1,175 @@
-# Agent Collaboration Plugin for OpenCode
+# Agent Collaboration Plugin
 
-A comprehensive plugin that enables OpenCode agents to communicate, coordinate, and collaborate on shared tasks.
+OpenCode plugin that lets agents working in the same project directory message each other, share a task board, and see who else is registered. The implementation is `agent-collaboration.ts`. It stores state as JSON under `.opencode/collaboration/`, which is gitignored.
 
-## Quick Start
+On load, the plugin registers the current process, writes that record to `agents.json`, and logs a startup line through `client.app.log`. The agent id is `agent-` plus the first 8 characters of the OpenCode project id (`unknown` when the project id is missing) plus the process pid. The display name starts as that id. The recorded capabilities are `task_execution`, `problem_solving`, and `code_review`. Status starts as `active`.
 
-### Clone and Install
+An agent left at `active` with `lastActive` older than 5 minutes is marked `stale`. That cleanup runs when the plugin loads and when `agent.discover` runs.
+
+## Prerequisites
+
+- Node.js and npm, to install the packages declared in `package.json`
+- Bun, because the plugin imports `$` from `bun` and writes files with `Bun.write`
+- OpenCode, which loads the plugin and exposes its tools to agents
+
+`package.json` declares:
+
+- `@opencode-ai/plugin` `^1.3.13`
+- `zod` `^4.3.6`
+- `@types/bun` `^1.3.11` (dev)
+
+`.opencode/package.json` lists `@opencode-ai/plugin` and `zod` as `latest`.
+
+## Install, build, and check
+
+Install the dependencies in this repository:
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd plugins
-
-# Install dependencies
 npm install
+```
 
-# Copy plugin to your OpenCode project
+`package.json` has no `scripts` entries. TypeScript is not a dependency. `tsconfig.json` targets ES2022, uses `module` `ESNext`, includes `*.ts`, and emits to `dist/` (gitignored) with declarations and source maps.
+
+Typecheck:
+
+```bash
+npx --yes -p typescript@5.8.2 tsc --noEmit
+```
+
+Emit `dist/`:
+
+```bash
+npx --yes -p typescript@5.8.2 tsc
+```
+
+There is no test script and no run script in this repository. The plugin runs inside OpenCode.
+
+OpenCode discovers `.ts` files in `.opencode/plugins/` and in `~/.config/opencode/plugins/`. Copy the plugin into the project that should load it:
+
+```bash
 mkdir -p .opencode/plugins
 cp agent-collaboration.ts .opencode/plugins/
+```
 
-# Or install globally
+Or copy it where OpenCode looks for global plugins:
+
+```bash
 mkdir -p ~/.config/opencode/plugins
 cp agent-collaboration.ts ~/.config/opencode/plugins/
 ```
 
-### Dependencies
+The file's plugin value is the named export `AgentCollaborationPlugin` from `@opencode-ai/plugin`. The project that loads the file needs `@opencode-ai/plugin`, `zod`, and Bun resolvable the same way this repository installs them with `npm install`.
 
-The plugin requires the following dependencies (already included in `package.json`):
-- `@opencode-ai/plugin` - OpenCode plugin SDK
-- `zod` - Schema validation
-- `@types/bun` - Bun type definitions (dev dependency)
+`MULTI-SESSION-GUIDE.md` describes starting more than one OpenCode session with the `opencode` command so those sessions share the collaboration files.
 
-Run `npm install` to install all required packages.
+## Usage
 
-## Features
+Agents call these tools. Arguments below match the schemas in `agent-collaboration.ts`.
 
-### 🤝 Agent Communication
-- **Direct Messaging**: Send messages to specific agents or broadcast to all
-- **Message Types**: Task requests, help requests, solution proposals, status updates, blocker reports
-- **Priority System**: Low, medium, high, and urgent message priorities
-- **Inbox Management**: Check and filter messages by type or priority
+### `agent.name`
 
-### 📋 Shared Task Board
-- **Task Creation**: Create tasks that any agent can claim
-- **Task Assignment**: Agents can claim tasks to work on
-- **Status Tracking**: Pending, in-progress, blocked, completed
-- **Dependency Management**: Track task dependencies
+Sets the display name other agents see.
 
-### 🔍 Agent Discovery
-- **Active Agent List**: See all active agents in the collaboration network
-- **Capability Filtering**: Find agents with specific capabilities
-- **Status Tracking**: Monitor agent availability
+```json
+{ "name": "LeadDev" }
+```
 
-### 🔄 Automatic Coordination
-- **Activity Tracking**: Agents automatically update their status
-- **Session Awareness**: Collaboration context maintained across compaction
-- **Tool Integration**: Collaboration reminders injected into tool execution
+### `agent.message`
 
-## Installation
+Sends a message. `to` is a display name or `broadcast`. When `to` matches an agent's `name`, the stored recipient is that agent's id. When it does not match, the raw `to` string is stored, and `agent.inbox` will not return it to another agent. `broadcast` stays `broadcast`.
 
-### Local Installation
-1. Copy `agent-collaboration.ts` to your project's plugin directory:
-   ```bash
-   mkdir -p .opencode/plugins
-   cp agent-collaboration.ts .opencode/plugins/
-   ```
+`type` is one of `task_request`, `task_update`, `help_request`, `solution_proposal`, `status_update`, `blocker_report`.
 
-2. Or install globally:
-   ```bash
-   mkdir -p ~/.config/opencode/plugins
-   cp agent-collaboration.ts ~/.config/opencode/plugins/
-   ```
-
-### Dependencies
-The plugin requires the following dependencies. Add to your `.opencode/package.json`:
+`priority` is `low`, `medium`, `high`, or `urgent`. The default is `medium`. `taskId` is optional.
 
 ```json
 {
-  "dependencies": {
-    "@opencode-ai/plugin": "latest",
-    "zod": "latest"
-  }
+  "to": "broadcast",
+  "type": "help_request",
+  "content": "Need help with the token refresh path.",
+  "priority": "high"
 }
 ```
 
-## How Agents Discover These Tools
+### `agent.inbox`
 
-The plugin automatically registers custom tools that become available to all OpenCode agents:
+Returns messages whose recipient is this agent id or `broadcast`, newest first. Optional filters are `type` and `priority`. `limit` defaults to 10.
 
-1. **`agent.message`** - Send messages to other agents
-2. **`agent.inbox`** - Check for new messages
-3. **`agent.task`** - Manage shared tasks
-4. **`agent.discover`** - Find other active agents
-
-Agents will see these tools in their available tool list and can use them based on the detailed descriptions provided in each tool definition.
-
-## Usage Examples
-
-### Agent A Requests Help
-```typescript
-// Agent A encounters a complex problem
-agent.message({
-  to: "broadcast",
-  type: "help_request",
-  content: "Need help implementing OAuth2 flow. Stuck on token refresh logic.",
-  priority: "high"
-})
+```json
+{ "limit": 10 }
 ```
 
-### Agent B Responds with Solution
-```typescript
-// Agent B sees the message and responds
-agent.message({
-  to: "agent-abc123",
-  type: "solution_proposal",
-  content: "I've implemented OAuth2 before. Here's the pattern: 1) Store refresh token securely, 2) Check expiry before each request, 3) Use exponential backoff on failures...",
-  priority: "medium"
-})
+### `agent.task`
+
+`action` is `create`, `update`, `list`, `claim`, or `complete`.
+
+- `create` stores a new id, `title` (default `Untitled Task`), `description` (default empty), `assignedTo` set to the current agent, `status` `pending`, and `dependencies` (default `[]`).
+- `update` requires an existing `taskId`. It can change `title`, `description`, and `status`.
+- `list` returns each task's `id`, `title`, `assignedTo`, `status`, and `dependencies`.
+- `claim` sets `assignedTo` to the current agent and `status` to `in_progress`.
+- `complete` sets `status` to `completed`.
+
+`status` values are `pending`, `in_progress`, `blocked`, and `completed`.
+
+```json
+{
+  "action": "create",
+  "title": "Implement user authentication",
+  "description": "Add login, registration, and session management",
+  "dependencies": ["task-setup-db"]
+}
 ```
 
-### Coordinating Task Work
-```typescript
-// Create a shared task
-agent.task({
-  action: "create",
-  title: "Implement user authentication",
-  description: "Add login, registration, and session management",
-  dependencies: ["task-setup-db"]
-})
-
-// Another agent claims the task
-agent.task({
-  action: "claim",
-  taskId: "task-123"
-})
-
-// Update progress
-agent.task({
-  action: "update",
-  taskId: "task-123",
-  status: "in_progress"
-})
-
-// Complete the task
-agent.task({
-  action: "complete",
-  taskId: "task-123"
-})
+```json
+{ "action": "claim", "taskId": "task-123" }
 ```
 
-### Discovering Available Agents
-```typescript
-// Find agents with code review capability
-agent.discover({
-  capability: "code_review"
-})
+```json
+{ "action": "complete", "taskId": "task-123" }
 ```
 
-## Collaboration Workflow
+### `agent.discover`
 
-1. **Initialization**: When an agent starts, it automatically registers in the collaboration network
-2. **Discovery**: Agents can discover each other and their capabilities
-3. **Communication**: Agents send messages using the `agent.message` tool
-4. **Task Coordination**: Shared tasks are created, claimed, and tracked
-5. **Status Updates**: Agent activity is automatically tracked via hooks
-6. **Context Preservation**: Collaboration state is maintained across session compaction
+Lists agents whose `status` is `active`. Pass `capability` to keep only agents whose `capabilities` array includes that string.
 
-## File Structure
+```json
+{ "capability": "code_review" }
+```
 
-The plugin creates a `.opencode/collaboration/` directory with:
-- `messages.json` - All collaboration messages
-- `tasks.json` - Shared task board
-- `agents.json` - Registered agents and their status
+### Hooks
 
-## Hooks Used
+The plugin returns these hooks:
 
-| Hook | Purpose |
-|------|---------|
-| `message.updated` | Track agent activity |
-| `session.updated` | Update agent status |
-| `session.idle` | Mark agent as idle |
-| `experimental.session.compacting` | Preserve collaboration context |
-| `tool.execute.before` | Inject collaboration awareness |
+| Hook | What it does |
+| --- | --- |
+| `session.created` | Writes the agent again as `active`, keeping an existing display name |
+| `message.updated` | Sets `lastActive` to the current time |
+| `session.updated` | Sets `lastActive` to the current time |
+| `session.idle` | Sets `status` to `idle` |
+| `experimental.session.compacting` | Appends tasks whose status is not `completed` to the compaction context |
+| `tool.execute.before` | When the tool is `bash` or `read` and more than one agent is `active`, prefixes `output.args.command` with a comment that counts those agents |
 
-## Best Practices for Agent Collaboration
+### Files
 
-1. **Be Specific**: Include relevant context in messages
-2. **Use Priority Appropriately**: Reserve "urgent" for critical blockers
-3. **Claim Tasks**: Always claim tasks before working on them
-4. **Update Status**: Keep task status current
-5. **Broadcast Wisely**: Use broadcast for important announcements only
-6. **Check Inbox Regularly**: Poll for new messages between major actions
+| Path | Contents |
+| --- | --- |
+| `.opencode/collaboration/messages.json` | Messages sent with `agent.message` |
+| `.opencode/collaboration/tasks.json` | Task board |
+| `.opencode/collaboration/agents.json` | Registered agents, names, capabilities, status, and `lastActive` |
 
-## Troubleshooting
+Reads fall back to an empty list or object when the file is missing or is not valid JSON.
 
-### Agents Not Seeing Each Other
-- Ensure all agents are in the same project directory
-- Check that the plugin is loaded in all sessions
-- Verify `.opencode/collaboration/agents.json` exists
+## Layout
 
-### Messages Not Delivered
-- Check file permissions on the collaboration directory
-- Ensure agents are using the correct agent IDs
-- Verify messages are being written to `messages.json`
+```text
+agent-collaboration.ts    Plugin source
+package.json              Dependency ranges for this repository
+.opencode/package.json    Dependency ranges using "latest"
+tsconfig.json             TypeScript emit settings
+MULTI-SESSION-GUIDE.md    Notes on running more than one OpenCode session
+TEST-PROMPT.md            Prompt text for exercising the tools
+```
 
-### Tasks Not Syncing
-- Confirm all agents have write access to the tasks file
-- Check for JSON parse errors in the tasks file
-- Ensure agents are using the same task IDs
+## License
 
-## Future Enhancements
-
-- Real-time message notifications
-- Agent capability negotiation
-- Task priority queues
-- Collaboration analytics
-- Cross-project collaboration
-- Message threading and replies
-- Agent reputation system
+This repository has no `LICENSE` file.
